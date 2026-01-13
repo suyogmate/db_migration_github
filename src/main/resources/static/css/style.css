@@ -1,0 +1,124 @@
+/* ===== Global ===== */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: #121826;
+    color: #e5e7eb;
+}
+
+/* ===== Header ===== */
+.header {
+    background: #0f172a;
+    padding: 16px 24px;
+    font-size: 20px;
+    font-weight: 600;
+    color: #ffffff;
+    border-bottom: 1px solid #1f2937;
+}
+
+/* ===== Layout ===== */
+.container {
+    padding: 24px;
+    max-width: 1200px;
+    margin: auto;
+}
+
+/* ===== Cards ===== */
+.card {
+    background: #1e293b;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+    margin-bottom: 24px;
+}
+
+.card h2 {
+    margin-top: 0;
+    margin-bottom: 16px;
+    font-size: 18px;
+    color: #f8fafc;
+}
+
+/* ===== Buttons ===== */
+button {
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-primary { background: #3b82f6; color: #fff; }
+.btn-success { background: #22c55e; color: #022c22; }
+.btn-danger  { background: #ef4444; color: #fff; }
+
+button:hover {
+    opacity: 0.9;
+}
+
+/* ===== Inputs ===== */
+input, select {
+    width: 100%;
+    padding: 9px;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #e5e7eb;
+    margin-bottom: 12px;
+}
+
+/* ===== Table ===== */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 12px;
+    border-bottom: 1px solid #334155;
+}
+
+th {
+    background: #0f172a;
+    text-align: left;
+    font-weight: 600;
+}
+
+tr:hover {
+    background: #020617;
+}
+
+/* ===== Modal ===== */
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+}
+
+.modal-content {
+    background: #1e293b;
+    width: 420px;
+    margin: 6% auto;
+    padding: 20px;
+    border-radius: 10px;
+}
+
+/* ===== Progress ===== */
+.progress {
+    background: #334155;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 12px;
+}
+
+.progress-bar {
+    height: 18px;
+    width: 0%;
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    transition: width 0.4s ease;
+}

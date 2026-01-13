@@ -1,0 +1,24 @@
+<div th:fragment="popup" id="popup" class="modal">
+    <div class="modal-content">
+        <h3>Add Database</h3>
+
+        <input id="name" placeholder="Display Name (e.g. Oracle-XE)">
+
+        <select id="dbType">
+            <option value="postgres">PostgreSQL</option>
+            <option value="oracle">Oracle</option>
+            <option value="mysql">MySQL</option>
+            <option value="sqlserver">SQL Server</option>
+        </select>
+
+        <input id="host" placeholder="Host">
+        <input id="port" placeholder="Port">
+        <input id="dbName" placeholder="Database Name (e.g. xe)">
+        <input id="schemaName" placeholder="Schema (optional)">
+        <input id="username" placeholder="Username">
+        <input id="password" type="password" placeholder="Password">
+
+        <button class="btn-success" onclick="saveDb()">Save</button>
+        <button class="btn-danger" onclick="closePopup()">Cancel</button>
+    </div>
+</div>

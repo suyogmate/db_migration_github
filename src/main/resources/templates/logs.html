@@ -1,0 +1,16 @@
+<h3>Migration Logs</h3>
+<div id="logs"></div>
+
+<script>
+const jobId = new URLSearchParams(location.search).get("jobId");
+
+setInterval(() => {
+  fetch('/api/logs/' + jobId)
+    .then(r => r.json())
+    .then(data => {
+      logs.innerHTML = data.map(l =>
+        `<div>${l.logTime} - ${l.message}</div>`
+      ).join("");
+    });
+}, 2000);
+</script>

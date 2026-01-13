@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>DB Migration Tool</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="/js/app.js"></script>
+</head>
+<body>
+
+<div class="header">DB Migration Tool</div>
+
+<div class="container">
+
+    <div class="card">
+        <h2>Database Configurations</h2>
+        <button class="btn-primary" onclick="openPopup()">+ Add Database</button>
+
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="db : ${databases}">
+                <td th:text="${db.name}"></td>
+                <td th:text="${db.dbType}"></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Run Migration</h2>
+
+        <select id="sourceDb">
+            <option value="">Select Source</option>
+            <option th:each="db : ${databases}"
+                    th:value="${db.id}"
+                    th:text="${db.name}">
+            </option>
+        </select>
+
+        <select id="targetDb">
+            <option value="">Select Target</option>
+            <option th:each="db : ${databases}"
+                    th:value="${db.id}"
+                    th:text="${db.name}">
+            </option>
+        </select>
+
+        <button class="btn-success" onclick="startMigration()">Start Migration</button>
+
+        <div class="progress">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+    </div>
+
+</div>
+
+<div th:replace="fragments/db-popup :: popup"></div>
+
+</body>
+</html>
