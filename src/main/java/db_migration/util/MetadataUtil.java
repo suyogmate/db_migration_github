@@ -29,6 +29,7 @@ public class MetadataUtil {
             c.setName(rs.getString("COLUMN_NAME"));
             c.setJdbcType(rs.getInt("DATA_TYPE"));
             c.setSize(rs.getInt("COLUMN_SIZE"));
+            c.setScale(rs.getInt("DECIMAL_DIGITS"));   // 🔴 THIS LINE
             c.setNullable("YES".equals(rs.getString("IS_NULLABLE")));
             cols.add(c);
         }
