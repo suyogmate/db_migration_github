@@ -6,10 +6,12 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import db_migration.model.ColumnMeta;
 import db_migration.model.DatabaseConfig;
 import db_migration.model.MigrationJob;
 import db_migration.model.MigrationLog;
@@ -23,9 +25,14 @@ import db_migration.util.SqlBuilder;
 @Service
 public class JdbcMigrationService implements MigrationService {
 
-    @Autowired DatabaseConfigRepository dbRepo;
-    @Autowired MigrationJobRepository jobRepo;
-    @Autowired MigrationLogRepository logRepo;
+    @Autowired
+    private DatabaseConfigRepository dbRepo;
+
+    @Autowired
+    private MigrationJobRepository jobRepo;
+
+    @Autowired
+    private MigrationLogRepository logRepo;
 
     @Override
     public void startMigration(Long sourceId, Long targetId) throws Exception {
@@ -37,45 +44,101 @@ public class JdbcMigrationService implements MigrationService {
         job.setStartedAt(LocalDateTime.now());
         jobRepo.save(job);
 
+        Connection src = null;
+        Connection tgt = null;
+
         try {
             DatabaseConfig srcCfg = dbRepo.findById(sourceId).orElseThrow();
             DatabaseConfig tgtCfg = dbRepo.findById(targetId).orElseThrow();
 
-            Connection src = JdbcConnectionFactory.getConnection(srcCfg);
-            Connection tgt = JdbcConnectionFactory.getConnection(tgtCfg);
+            src = JdbcConnectionFactory.getConnection(srcCfg);
+            tgt = JdbcConnectionFactory.getConnection(tgtCfg);
 
-            for (String table : MetadataUtil.getTables(src,src.getSchema())) {
+            String srcSchema = resolveSchema(srcCfg);
+            String tgtSchema = resolveSchema(tgtCfg);
+
+            List<String> tables = MetadataUtil.getTables(src, srcSchema);
+
+            for (String table : tables) {
+
                 log(job.getId(), "Migrating table: " + table);
-                
-                String createsql= SqlBuilder.createTable(tgt.getSchema(), table, MetadataUtil.getColumns(src, src.getSchema(), table));
-                
-                tgt.createStatement().execute(createsql);
 
+                /* ---------- CREATE TABLE ---------- */
+
+                List<ColumnMeta> cols = MetadataUtil.getColumns(src, srcSchema, table);
+
+                String createSql = SqlBuilder.createTable(
+                        tgtSchema,
+                        table,
+                        cols,
+                        tgtCfg.getDbType()
+                );
+
+                try (Statement ddl = tgt.createStatement()) {
+                    ddl.execute(createSql);
+                }
+
+                /* ---------- DATA COPY ---------- */
+
+                String selectSql = "SELECT * FROM " + srcSchema + "." + table;
                 Statement st = src.createStatement();
-                ResultSet rs = st.executeQuery("SELECT * FROM " + src.getSchema() +"." + table);
+                ResultSet rs = st.executeQuery(selectSql);
                 ResultSetMetaData md = rs.getMetaData();
-                
-                PreparedStatement ps =
-                        tgt.prepareStatement(SqlBuilder.insertSql(src.getSchema(),table, md.getColumnCount()));
 
+                String insertSql = SqlBuilder.insertSql(
+                        tgtSchema,
+                        table,
+                        md.getColumnCount()
+                );
+
+                PreparedStatement ps = tgt.prepareStatement(insertSql);
+
+                int batch = 0;
                 while (rs.next()) {
                     for (int i = 1; i <= md.getColumnCount(); i++) {
                         ps.setObject(i, rs.getObject(i));
                     }
                     ps.addBatch();
+
+                    if (++batch % 500 == 0) {
+                        ps.executeBatch();
+                    }
                 }
                 ps.executeBatch();
+
+                rs.close();
+                st.close();
+                ps.close();
             }
 
             job.setStatus("SUCCESS");
+
         } catch (Exception e) {
             job.setStatus("FAILED");
             job.setErrorMessage(e.getMessage());
             throw e;
+
         } finally {
             job.setEndedAt(LocalDateTime.now());
             jobRepo.save(job);
+
+            if (src != null) src.close();
+            if (tgt != null) tgt.close();
         }
+    }
+
+    /* ---------------- HELPERS ---------------- */
+
+    private String resolveSchema(DatabaseConfig cfg) {
+        if (cfg.getSchema() != null && !cfg.getSchema().isBlank()) {
+            return cfg.getSchema().toUpperCase();
+        }
+
+        if ("oracle".equalsIgnoreCase(cfg.getDbType())) {
+            return cfg.getUsername().toUpperCase();
+        }
+
+        return "public";
     }
 
     private void log(Long jobId, String msg) {
