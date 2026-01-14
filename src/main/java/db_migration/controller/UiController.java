@@ -15,7 +15,7 @@ public class UiController {
         this.dbRepo = dbRepo;
     }
 
-    @GetMapping("/")
+    @GetMapping({"/", "/dashboard"})
     public String dashboard(Model model) {
         model.addAttribute("databases", dbRepo.findAll());
         return "dashboard";

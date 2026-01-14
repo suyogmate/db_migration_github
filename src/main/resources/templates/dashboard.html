@@ -1,121 +1,76 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
-    <title>DB Migration Tool</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>DB Migration Dashboard</title>
+    <link rel="stylesheet" th:href="@{/css/dashboard.css}">
 </head>
+<body>
 
-<body class="bg-gray-900 text-gray-200">
+<div class="app">
 
-<div class="flex h-screen">
-
-    <!-- Sidebar -->
-    <aside class="w-64 bg-gray-800 p-4">
-        <h1 class="text-xl font-bold mb-6">DB Migration</h1>
-        <button onclick="openPopup()"
-                class="bg-blue-600 px-4 py-2 rounded w-full">
-            Start Migration
-        </button>
+    <aside class="sidebar">
+        <h2>DB Migration</h2>
+        <button onclick="openPopup()">+ Add DB</button>
     </aside>
 
-    <!-- Main -->
-    <main class="flex-1 p-6">
+    <main class="content">
 
-        <!-- Progress -->
-        <div class="mb-6">
-            <h2 class="font-semibold mb-2">Progress</h2>
-            <div class="w-full bg-gray-700 rounded">
-                <div id="progressBar"
-                     class="bg-green-500 h-4 rounded w-0"></div>
+        <header>
+            <h1>Migration Jobs</h1>
+        </header>
+
+        <section class="jobs">
+
+            <div class="job-card" th:each="job : ${jobs}">
+                <div class="job-header">
+                    <span>Job #<b th:text="${job.id}"></b></span>
+                    <span class="status" th:text="${job.status}"></span>
+                </div>
+
+                <div class="progress">
+                    <div class="bar"
+                         th:style="'width:' + ${job.progress} + '%'"></div>
+                </div>
+
+                <div class="actions">
+                    <button th:onclick="'viewLogs(' + ${job.id} + ')'">
+                        Logs
+                    </button>
+                </div>
             </div>
-            <p id="statusText" class="mt-2 text-sm"></p>
-        </div>
 
-        <!-- Logs -->
-        <div class="bg-gray-800 p-4 rounded h-96 overflow-auto">
-            <h2 class="font-semibold mb-2">Logs</h2>
-            <pre id="logs" class="text-sm"></pre>
-        </div>
+        </section>
+
+        <section class="logs">
+            <h3>Logs</h3>
+            <pre id="logBox">Select a job to view logs</pre>
+        </section>
+
     </main>
 </div>
 
-<!-- Popup -->
-<div id="popup"
-     class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center">
-
-    <div class="bg-gray-800 p-6 rounded w-96">
-        <h3 class="font-semibold mb-4">Start Migration</h3>
-
-        <input id="sourceId" placeholder="Source DB ID"
-               class="w-full mb-3 p-2 bg-gray-700 rounded">
-
-        <input id="targetId" placeholder="Target DB ID"
-               class="w-full mb-3 p-2 bg-gray-700 rounded">
-
-        <div class="flex justify-end gap-2">
-            <button onclick="closePopup()">Cancel</button>
-            <button onclick="startMigration()"
-                    class="bg-blue-600 px-4 py-2 rounded">
-                Start
-            </button>
-        </div>
+<!-- DB POPUP -->
+<div id="popup" class="modal">
+    <div class="modal-content">
+        <h3>Add Database</h3>
+        <form method="post" th:action="@{/db/save}">
+            <input name="name" placeholder="Name" required>
+            <select name="dbType">
+                <option value="oracle">Oracle</option>
+                <option value="postgres">PostgreSQL</option>
+            </select>
+            <input name="host" placeholder="Host">
+            <input name="port" placeholder="Port">
+            <input name="dbName" placeholder="Database">
+            <input name="schema" placeholder="Schema">
+            <input name="username" placeholder="Username">
+            <input name="password" type="password" placeholder="Password">
+            <button type="submit">Save</button>
+            <button type="button" onclick="closePopup()">Cancel</button>
+        </form>
     </div>
 </div>
 
-<script>
-let jobId = null;
-
-function openPopup() {
-    document.getElementById("popup").classList.remove("hidden");
-}
-function closePopup() {
-    document.getElementById("popup").classList.add("hidden");
-}
-
-function startMigration() {
-
-    fetch("/migration/start", {
-        method: "POST",
-        headers: {"Content-Type": "application/x-www-form-urlencoded"},
-        body: new URLSearchParams({
-            sourceId: document.getElementById("sourceId").value,
-            targetId: document.getElementById("targetId").value
-        })
-    })
-    .then(r => r.text())
-    .then(id => {
-        jobId = id;
-        closePopup();
-        poll();
-    });
-}
-
-function poll() {
-    setInterval(() => {
-        fetch("/migration/job/" + jobId)
-            .then(r => r.json())
-            .then(j => {
-                document.getElementById("statusText").innerText = j.status;
-                if (j.status === "SUCCESS") {
-                    document.getElementById("progressBar").style.width = "100%";
-                    alert("Migration completed");
-                }
-                if (j.status === "FAILED") {
-                    alert("Migration failed: " + j.errorMessage);
-                }
-            });
-
-        fetch("/migration/logs/" + jobId)
-            .then(r => r.json())
-            .then(logs => {
-                let txt = logs.map(l => l.logTime + " - " + l.message).join("\n");
-                document.getElementById("logs").innerText = txt;
-                document.getElementById("progressBar").style.width =
-                    Math.min(logs.length * 10, 100) + "%";
-            });
-    }, 2000);
-}
-</script>
-
+<script th:src="@{/js/dashboard.js}"></script>
 </body>
 </html>
