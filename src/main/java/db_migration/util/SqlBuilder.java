@@ -7,95 +7,93 @@ import db_migration.model.ColumnMeta;
 
 public class SqlBuilder {
 
-    /**
-     * Maps JDBC types to TARGET database SQL types
-     */
-    public static String mapType(ColumnMeta c, String targetDbType) {
+    public static String mapType(ColumnMeta c, String targetDb) {
 
-        if ("oracle".equalsIgnoreCase(targetDbType)) {
-            return mapOracleType(c);
-        }
-        return mapPostgresType(c);
-    }
+        boolean oracle = "oracle".equalsIgnoreCase(targetDb);
 
-    private static String mapPostgresType(ColumnMeta c) {
         return switch (c.getJdbcType()) {
-            case Types.INTEGER -> "INTEGER";
-            case Types.BIGINT -> "BIGINT";
-            case Types.VARCHAR, Types.CHAR ->
-                    "VARCHAR(" + Math.min(c.getSize(), 10485760) + ")";
-            case Types.TIMESTAMP -> "TIMESTAMP";
-            case Types.DATE -> "DATE";
-            case Types.NUMERIC, Types.DECIMAL ->
-                    "NUMERIC(" + c.getSize() + "," + c.getScale() + ")";
-            case Types.CLOB, Types.LONGVARCHAR -> "TEXT";
-            default -> "TEXT";
-        };
-    }
 
-    private static String mapOracleType(ColumnMeta c) {
-        return switch (c.getJdbcType()) {
-            case Types.INTEGER, Types.BIGINT ->
-                    "NUMBER";
+            case Types.INTEGER ->
+                oracle ? "NUMBER(10)" : "INTEGER";
+
+            case Types.BIGINT ->
+                oracle ? "NUMBER(19)" : "BIGINT";
+
             case Types.VARCHAR, Types.CHAR ->
-                    "VARCHAR2(" + Math.min(c.getSize(), 4000) + ")";
-            case Types.TIMESTAMP ->
-                    "TIMESTAMP";
+                oracle ? "VARCHAR2(" + Math.min(c.getSize(), 4000) + ")"
+                       : "VARCHAR(" + c.getSize() + ")";
+
             case Types.DATE ->
-                    "DATE";
+                oracle ? "DATE" : "DATE";
+
+            case Types.TIMESTAMP ->
+                oracle ? "TIMESTAMP" : "TIMESTAMP";
+
             case Types.NUMERIC, Types.DECIMAL ->
-                    "NUMBER(" + c.getSize() + "," + c.getScale() + ")";
-            case Types.CLOB, Types.LONGVARCHAR ->
-                    "CLOB";
+                oracle ? "NUMBER" : "NUMERIC";
+
             default ->
-                    "CLOB";
+                oracle ? "CLOB" : "TEXT";
         };
     }
 
-    /**
-     * CREATE TABLE builder
-     */
-    public static String createTable(String schema,
-                                     String table,
-                                     List<ColumnMeta> cols,
-                                     String targetDbType) {
+    public static String createTable(
+            String schema,
+            String table,
+            List<ColumnMeta> cols,
+            String targetDb) {
 
-        String fullName = (schema == null || schema.isBlank())
-                ? table
-                : "\"" + schema + "\".\"" + table + "\"";
+        boolean oracle = "oracle".equalsIgnoreCase(targetDb);
 
-        StringBuilder sql = new StringBuilder("CREATE TABLE " + fullName + " (");
+        StringBuilder sql = new StringBuilder();
+
+        // Oracle does NOT support IF NOT EXISTS
+        if (oracle) {
+            sql.append("CREATE TABLE ");
+        } else {
+            sql.append("CREATE TABLE IF NOT EXISTS ");
+        }
+
+        if (schema != null && !schema.isBlank()) {
+            sql.append(schema).append(".").append(table);
+        } else {
+            sql.append(table);
+        }
+
+        sql.append(" (");
 
         for (ColumnMeta c : cols) {
-            sql.append("\"")
-               .append(c.getName())
-               .append("\" ")
-               .append(mapType(c, targetDbType));
-
-            if (!c.isNullable()) {
-                sql.append(" NOT NULL");
-            }
-            sql.append(",");
+            sql.append("\"").append(c.getName()).append("\" ")
+               .append(mapType(c, targetDb))
+               .append(c.isNullable() ? "" : " NOT NULL")
+               .append(", ");
         }
 
-        sql.setLength(sql.length() - 1);
+        sql.setLength(sql.length() - 2);
         sql.append(")");
 
         return sql.toString();
     }
 
-    /**
-     * INSERT statement builder
-     */
     public static String insertSql(String schema, String table, int colCount) {
 
-        String fullName = (schema == null || schema.isBlank())
-                ? "\"" + table + "\""
-                : "\"" + schema + "\".\"" + table + "\"";
+        StringBuilder sb = new StringBuilder();
+        sb.append("INSERT INTO ");
 
-        return "INSERT INTO " + fullName +
-                " VALUES (" +
-                "?,".repeat(colCount).substring(0, colCount * 2 - 1) +
-                ")";
+        if (schema != null && !schema.isBlank()) {
+            sb.append(schema).append(".").append(table);
+        } else {
+            sb.append(table);
+        }
+
+        sb.append(" VALUES (");
+
+        for (int i = 0; i < colCount; i++) {
+            sb.append("?");
+            if (i < colCount - 1) sb.append(",");
+        }
+
+        sb.append(")");
+        return sb.toString();
     }
 }

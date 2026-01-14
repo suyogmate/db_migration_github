@@ -14,9 +14,9 @@ import db_migration.util.*;
 @Service
 public class JdbcMigrationService implements MigrationService {
 
-    @Autowired private DatabaseConfigRepository dbRepo;
-    @Autowired private MigrationJobRepository jobRepo;
-    @Autowired private MigrationLogRepository logRepo;
+    @Autowired DatabaseConfigRepository dbRepo;
+    @Autowired MigrationJobRepository jobRepo;
+    @Autowired MigrationLogRepository logRepo;
 
     @Override
     public void startMigration(Long sourceId, Long targetId) throws Exception {
@@ -28,62 +28,49 @@ public class JdbcMigrationService implements MigrationService {
         job.setStartedAt(LocalDateTime.now());
         jobRepo.save(job);
 
-        DatabaseConfig srcCfg = dbRepo.findById(sourceId).orElseThrow();
-        DatabaseConfig tgtCfg = dbRepo.findById(targetId).orElseThrow();
+        try {
+            DatabaseConfig srcCfg = dbRepo.findById(sourceId).orElseThrow();
+            DatabaseConfig tgtCfg = dbRepo.findById(targetId).orElseThrow();
 
-        try (
             Connection src = JdbcConnectionFactory.getConnection(srcCfg);
-            Connection tgt = JdbcConnectionFactory.getConnection(tgtCfg)
-        ) {
-            src.setAutoCommit(false);
-            tgt.setAutoCommit(false);
+            Connection tgt = JdbcConnectionFactory.getConnection(tgtCfg);
 
-            String sourceSchema = resolveSchema(srcCfg);
-            String targetSchema = resolveSchema(tgtCfg);
+            String srcSchema = normalizeSchema(srcCfg);
+            String tgtSchema = normalizeSchema(tgtCfg);
 
-            createSchemaIfMissing(tgt, targetSchema, tgtCfg.getDbType());
+            createSchemaIfMissing(tgt, tgtCfg.getDbType(), tgtSchema);
 
-            for (String table : MetadataUtil.getTables(src, sourceSchema)) {
+            for (String table : MetadataUtil.getTables(src, srcSchema)) {
 
                 log(job.getId(), "Migrating table: " + table);
 
                 List<ColumnMeta> cols =
-                        MetadataUtil.getColumns(src, sourceSchema, table);
+                        MetadataUtil.getColumns(src, srcSchema, table);
 
-                // CREATE TABLE
-                String ddl = SqlBuilder.createTable(
-                        targetSchema, table, cols, tgtCfg.getDbType()
+                if (!tableExists(tgt, tgtCfg.getDbType(), tgtSchema, table)) {
+                    String ddl = SqlBuilder.createTable(
+                            tgtSchema, table, cols, tgtCfg.getDbType()
+                    );
+                    tgt.createStatement().execute(ddl);
+                }
+
+                Statement st = src.createStatement();
+                ResultSet rs = st.executeQuery(
+                        "SELECT * FROM " + srcSchema + "." + table
                 );
-                try (Statement st = tgt.createStatement()) {
-                    st.execute(ddl);
-                }
 
-                // INSERT DATA
-                String insertSql =
-                        SqlBuilder.insertSql(targetSchema, table, cols.size());
+                PreparedStatement ps = tgt.prepareStatement(
+                        SqlBuilder.insertSql(tgtSchema, table, cols.size())
+                );
 
-                try (
-                    PreparedStatement ps = tgt.prepareStatement(insertSql);
-                    Statement st = src.createStatement();
-                    ResultSet rs = st.executeQuery(
-                        buildSelect(sourceSchema, table))
-                ) {
-                    int batch = 0;
-                    while (rs.next()) {
-                        for (int i = 0; i < cols.size(); i++) {
-                            ps.setObject(i + 1, rs.getObject(i + 1));
-                        }
-                        ps.addBatch();
-
-                        if (++batch % 1000 == 0) {
-                            ps.executeBatch();
-                        }
+                while (rs.next()) {
+                    for (int i = 1; i <= cols.size(); i++) {
+                        ps.setObject(i, rs.getObject(i));
                     }
-                    ps.executeBatch();
+                    ps.addBatch();
                 }
 
-                tgt.commit();
-                log(job.getId(), "Completed table: " + table);
+                ps.executeBatch();
             }
 
             job.setStatus("SUCCESS");
@@ -98,39 +85,54 @@ public class JdbcMigrationService implements MigrationService {
         }
     }
 
-    /* ====================== HELPERS ====================== */
+    /* ------------------ HELPERS ------------------ */
 
-    private String resolveSchema(DatabaseConfig cfg) {
-        if (cfg.getSchema() != null && !cfg.getSchema().isBlank()) {
-            return cfg.getSchema().toUpperCase();
-        }
-        return null;
+    private String normalizeSchema(DatabaseConfig cfg) {
+        return (cfg.getSchema() == null || cfg.getSchema().isBlank())
+                ? cfg.getUsername().toUpperCase()
+                : cfg.getSchema().toUpperCase();
     }
 
-    private void createSchemaIfMissing(Connection conn,
-                                       String schema,
-                                       String targetDbType) throws SQLException {
+    private boolean tableExists(
+            Connection conn,
+            String dbType,
+            String schema,
+            String table) throws SQLException {
 
-        if (schema == null || schema.isBlank()) {
+        if ("oracle".equalsIgnoreCase(dbType)) {
+            String sql = """
+                SELECT COUNT(*)
+                FROM ALL_TABLES
+                WHERE OWNER = ?
+                  AND TABLE_NAME = ?
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, schema);
+                ps.setString(2, table.toUpperCase());
+                ResultSet rs = ps.executeQuery();
+                rs.next();
+                return rs.getInt(1) > 0;
+            }
+        } else {
+            DatabaseMetaData md = conn.getMetaData();
+            ResultSet rs = md.getTables(null, schema, table, null);
+            return rs.next();
+        }
+    }
+
+    private void createSchemaIfMissing(
+            Connection conn,
+            String dbType,
+            String schema) throws SQLException {
+
+        if ("oracle".equalsIgnoreCase(dbType)) {
+            // Oracle schema == user (already exists)
             return;
         }
 
-        // Oracle: schema == USER → never create
-        if ("oracle".equalsIgnoreCase(targetDbType)) {
-            return;
-        }
-
-        String sql = "CREATE SCHEMA IF NOT EXISTS \"" + schema + "\"";
         try (Statement st = conn.createStatement()) {
-            st.execute(sql);
+            st.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
         }
-    }
-
-    private String buildSelect(String schema, String table) {
-        if (schema == null || schema.isBlank()) {
-            return "SELECT * FROM \"" + table + "\"";
-        }
-        return "SELECT * FROM \"" + schema + "\".\"" + table + "\"";
     }
 
     private void log(Long jobId, String msg) {
