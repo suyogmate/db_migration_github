@@ -1,99 +1,78 @@
 package db_migration.util;
 
-import java.sql.Types;
+import java.sql.*;
+import java.util.ArrayList;
 import java.util.List;
 
-import db_migration.model.ColumnMeta;
+import db_migration.model.DatabaseConfig;
 
 public class SqlBuilder {
 
-    public static String mapType(ColumnMeta c, String targetDb) {
+    /* ================= CREATE TABLE ================= */
 
-        boolean oracle = "oracle".equalsIgnoreCase(targetDb);
+    public static String buildCreateTable(
+            Connection src,
+            Connection tgt,
+            String table,
+            DatabaseConfig srcCfg,
+            DatabaseConfig tgtCfg
+    ) throws Exception {
 
-        return switch (c.getJdbcType()) {
+        DatabaseMetaData meta = src.getMetaData();
+        ResultSet rs = meta.getColumns(null, srcCfg.getSchema(), table, null);
 
-            case Types.INTEGER ->
-                oracle ? "NUMBER(10)" : "INTEGER";
+        List<String> cols = new ArrayList<>();
 
-            case Types.BIGINT ->
-                oracle ? "NUMBER(19)" : "BIGINT";
+        while (rs.next()) {
+            String name = rs.getString("COLUMN_NAME");
+            int type = rs.getInt("DATA_TYPE");
+            int size = rs.getInt("COLUMN_SIZE");
+            int scale = rs.getInt("DECIMAL_DIGITS");
 
-            case Types.VARCHAR, Types.CHAR ->
-                oracle ? "VARCHAR2(" + Math.min(c.getSize(), 4000) + ")"
-                       : "VARCHAR(" + c.getSize() + ")";
+            cols.add(name + " " + mapType(type, size, scale, tgtCfg.getDbType()));
+        }
 
-            case Types.DATE ->
-                oracle ? "DATE" : "DATE";
+        String ddl;
 
-            case Types.TIMESTAMP ->
-                oracle ? "TIMESTAMP" : "TIMESTAMP";
+        if (isOracle(tgtCfg)) {
+            ddl = "CREATE TABLE " + tgtCfg.getSchema() + "." + table +
+                    " (" + String.join(",", cols) + ")";
+        } else {
+            ddl = "CREATE TABLE IF NOT EXISTS " + tgtCfg.getSchema() + "." + table +
+                    " (" + String.join(",", cols) + ")";
+        }
 
-            case Types.NUMERIC, Types.DECIMAL ->
-                oracle ? "NUMBER" : "NUMERIC";
+        return ddl;
+    }
 
-            default ->
-                oracle ? "CLOB" : "TEXT";
+    /* ================= TYPE MAPPING ================= */
+
+    private static String mapType(int jdbcType, int size, int scale, String targetDb) {
+
+        if ("oracle".equalsIgnoreCase(targetDb)) {
+            return switch (jdbcType) {
+                case Types.INTEGER, Types.BIGINT -> "NUMBER";
+                case Types.NUMERIC -> "NUMBER(" + size + "," + scale + ")";
+                case Types.VARCHAR -> "VARCHAR2(" + size + ")";
+                case Types.CLOB -> "CLOB";
+                case Types.DATE, Types.TIMESTAMP -> "DATE";
+                default -> "CLOB";
+            };
+        }
+
+        // PostgreSQL
+        return switch (jdbcType) {
+            case Types.INTEGER -> "INTEGER";
+            case Types.BIGINT -> "BIGINT";
+            case Types.NUMERIC -> "NUMERIC(" + size + "," + scale + ")";
+            case Types.VARCHAR -> "VARCHAR(" + size + ")";
+            case Types.TIMESTAMP -> "TIMESTAMP";
+            case Types.DATE -> "DATE";
+            default -> "TEXT";
         };
     }
 
-    public static String createTable(
-            String schema,
-            String table,
-            List<ColumnMeta> cols,
-            String targetDb) {
-
-        boolean oracle = "oracle".equalsIgnoreCase(targetDb);
-
-        StringBuilder sql = new StringBuilder();
-
-        // Oracle does NOT support IF NOT EXISTS
-        if (oracle) {
-            sql.append("CREATE TABLE ");
-        } else {
-            sql.append("CREATE TABLE IF NOT EXISTS ");
-        }
-
-        if (schema != null && !schema.isBlank()) {
-            sql.append(schema).append(".").append(table);
-        } else {
-            sql.append(table);
-        }
-
-        sql.append(" (");
-
-        for (ColumnMeta c : cols) {
-            sql.append("\"").append(c.getName()).append("\" ")
-               .append(mapType(c, targetDb))
-               .append(c.isNullable() ? "" : " NOT NULL")
-               .append(", ");
-        }
-
-        sql.setLength(sql.length() - 2);
-        sql.append(")");
-
-        return sql.toString();
-    }
-
-    public static String insertSql(String schema, String table, int colCount) {
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("INSERT INTO ");
-
-        if (schema != null && !schema.isBlank()) {
-            sb.append(schema).append(".").append(table);
-        } else {
-            sb.append(table);
-        }
-
-        sb.append(" VALUES (");
-
-        for (int i = 0; i < colCount; i++) {
-            sb.append("?");
-            if (i < colCount - 1) sb.append(",");
-        }
-
-        sb.append(")");
-        return sb.toString();
+    private static boolean isOracle(DatabaseConfig cfg) {
+        return "oracle".equalsIgnoreCase(cfg.getDbType());
     }
 }

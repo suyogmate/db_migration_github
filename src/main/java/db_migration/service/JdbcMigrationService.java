@@ -10,69 +10,50 @@ import org.springframework.stereotype.Service;
 import db_migration.model.*;
 import db_migration.repository.*;
 import db_migration.util.*;
-
 @Service
-public class JdbcMigrationService implements MigrationService {
+public class JdbcMigrationService {
 
     @Autowired DatabaseConfigRepository dbRepo;
     @Autowired MigrationJobRepository jobRepo;
     @Autowired MigrationLogRepository logRepo;
 
-    @Override
-    public void startMigration(Long sourceId, Long targetId) throws Exception {
+    public Long startMigration(Long srcId, Long tgtId) throws Exception {
 
         MigrationJob job = new MigrationJob();
-        job.setSourceDbId(sourceId);
-        job.setTargetDbId(targetId);
+        job.setSourceDbId(srcId);
+        job.setTargetDbId(tgtId);
         job.setStatus("RUNNING");
         job.setStartedAt(LocalDateTime.now());
         jobRepo.save(job);
 
-        try {
-            DatabaseConfig srcCfg = dbRepo.findById(sourceId).orElseThrow();
-            DatabaseConfig tgtCfg = dbRepo.findById(targetId).orElseThrow();
+        DatabaseConfig srcCfg = dbRepo.findById(srcId).orElseThrow();
+        DatabaseConfig tgtCfg = dbRepo.findById(tgtId).orElseThrow();
 
+        try (
             Connection src = JdbcConnectionFactory.getConnection(srcCfg);
-            Connection tgt = JdbcConnectionFactory.getConnection(tgtCfg);
+            Connection tgt = JdbcConnectionFactory.getConnection(tgtCfg)
+        ) {
 
-            String srcSchema = normalizeSchema(srcCfg);
-            String tgtSchema = normalizeSchema(tgtCfg);
+            tgt.setAutoCommit(false);
 
-            createSchemaIfMissing(tgt, tgtCfg.getDbType(), tgtSchema);
+            List<String> tables = MetadataUtil.getTables(src, srcCfg.getSchema());
 
-            for (String table : MetadataUtil.getTables(src, srcSchema)) {
+            for (String table : tables) {
 
-                log(job.getId(), "Migrating table: " + table);
+                log(job.getId(), "Creating table: " + table);
 
-                List<ColumnMeta> cols =
-                        MetadataUtil.getColumns(src, srcSchema, table);
-
-                if (!tableExists(tgt, tgtCfg.getDbType(), tgtSchema, table)) {
-                    String ddl = SqlBuilder.createTable(
-                            tgtSchema, table, cols, tgtCfg.getDbType()
-                    );
-                    tgt.createStatement().execute(ddl);
-                }
-
-                Statement st = src.createStatement();
-                ResultSet rs = st.executeQuery(
-                        "SELECT * FROM " + srcSchema + "." + table
+                String ddl = SqlBuilder.buildCreateTable(
+                        src, tgt, table, srcCfg, tgtCfg
                 );
 
-                PreparedStatement ps = tgt.prepareStatement(
-                        SqlBuilder.insertSql(tgtSchema, table, cols.size())
-                );
+                tgt.createStatement().execute(ddl);
 
-                while (rs.next()) {
-                    for (int i = 1; i <= cols.size(); i++) {
-                        ps.setObject(i, rs.getObject(i));
-                    }
-                    ps.addBatch();
-                }
+                copyData(src, tgt, table, srcCfg, tgtCfg);
 
-                ps.executeBatch();
+                log(job.getId(), "Completed table: " + table);
             }
 
+            tgt.commit();
             job.setStatus("SUCCESS");
 
         } catch (Exception e) {
@@ -83,56 +64,33 @@ public class JdbcMigrationService implements MigrationService {
             job.setEndedAt(LocalDateTime.now());
             jobRepo.save(job);
         }
+
+        return job.getId();
     }
 
-    /* ------------------ HELPERS ------------------ */
+    private void copyData(Connection src, Connection tgt,
+                          String table, DatabaseConfig srcCfg,
+                          DatabaseConfig tgtCfg) throws Exception {
 
-    private String normalizeSchema(DatabaseConfig cfg) {
-        return (cfg.getSchema() == null || cfg.getSchema().isBlank())
-                ? cfg.getUsername().toUpperCase()
-                : cfg.getSchema().toUpperCase();
-    }
+        String sql = "SELECT * FROM " + srcCfg.getSchema() + "." + table;
+        ResultSet rs = src.createStatement().executeQuery(sql);
 
-    private boolean tableExists(
-            Connection conn,
-            String dbType,
-            String schema,
-            String table) throws SQLException {
+        ResultSetMetaData md = rs.getMetaData();
+        int cols = md.getColumnCount();
 
-        if ("oracle".equalsIgnoreCase(dbType)) {
-            String sql = """
-                SELECT COUNT(*)
-                FROM ALL_TABLES
-                WHERE OWNER = ?
-                  AND TABLE_NAME = ?
-            """;
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setString(1, schema);
-                ps.setString(2, table.toUpperCase());
-                ResultSet rs = ps.executeQuery();
-                rs.next();
-                return rs.getInt(1) > 0;
+        String insert = "INSERT INTO " + tgtCfg.getSchema() + "." + table +
+                " VALUES (" + "?,".repeat(cols).substring(0, cols * 2 - 1) + ")";
+
+        PreparedStatement ps = tgt.prepareStatement(insert);
+
+        while (rs.next()) {
+            for (int i = 1; i <= cols; i++) {
+                ps.setObject(i, rs.getObject(i));
             }
-        } else {
-            DatabaseMetaData md = conn.getMetaData();
-            ResultSet rs = md.getTables(null, schema, table, null);
-            return rs.next();
-        }
-    }
-
-    private void createSchemaIfMissing(
-            Connection conn,
-            String dbType,
-            String schema) throws SQLException {
-
-        if ("oracle".equalsIgnoreCase(dbType)) {
-            // Oracle schema == user (already exists)
-            return;
+            ps.addBatch();
         }
 
-        try (Statement st = conn.createStatement()) {
-            st.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
-        }
+        ps.executeBatch();
     }
 
     private void log(Long jobId, String msg) {

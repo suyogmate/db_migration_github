@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import db_migration.model.MigrationLog;
 
 public interface MigrationLogRepository
-        extends JpaRepository<MigrationLog, Long> {
+extends JpaRepository<MigrationLog, Long> {
 
-	List<MigrationLog> findByJobIdOrderByLogTime(Long jobId);
-	}
+List<MigrationLog> findByJobIdOrderByLogTime(Long jobId);
+}
