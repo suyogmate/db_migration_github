@@ -1,84 +1,69 @@
 body {
-    margin: 0;
     font-family: Arial, sans-serif;
     background: #0f172a;
     color: #e5e7eb;
 }
 
-.app {
-    display: flex;
+.container {
+    width: 900px;
+    margin: 40px auto;
 }
 
-.sidebar {
-    width: 220px;
-    background: #020617;
+.card, .logs-card, .progress-card {
+    background: #1e293b;
     padding: 20px;
-}
-
-.sidebar h2 {
     margin-bottom: 20px;
+    border-radius: 10px;
 }
 
-.sidebar button {
+select, button {
     width: 100%;
     padding: 10px;
-}
-
-.content {
-    flex: 1;
-    padding: 20px;
-}
-
-.job-card {
+    margin-top: 10px;
     background: #020617;
-    margin-bottom: 15px;
-    padding: 15px;
+    color: white;
     border-radius: 6px;
 }
 
-.job-header {
-    display: flex;
-    justify-content: space-between;
+button {
+    background: #2563eb;
+    cursor: pointer;
 }
 
-.status {
-    font-weight: bold;
-}
-
-.progress {
-    background: #1e293b;
-    height: 8px;
-    margin: 10px 0;
-    border-radius: 4px;
-}
-
-.bar {
-    height: 8px;
-    background: #22c55e;
-    border-radius: 4px;
-}
-
-.logs {
-    margin-top: 30px;
-}
-
-.logs pre {
+.progress-bar {
     background: #020617;
-    padding: 15px;
-    height: 200px;
-    overflow-y: auto;
+    height: 20px;
+    border-radius: 10px;
 }
 
-.modal {
-    display: none;
+#progress {
+    background: #22c55e;
+    height: 100%;
+    width: 0%;
+    border-radius: 10px;
+}
+
+pre {
+    background: black;
+    padding: 10px;
+    height: 200px;
+    overflow: auto;
+}
+
+.popup {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.6);
+    background: rgba(0,0,0,0.7);
 }
 
-.modal-content {
-    background: #020617;
-    width: 400px;
-    margin: 100px auto;
+.popup-content {
+    background: #1e293b;
     padding: 20px;
+    width: 400px;
+    margin: 150px auto;
+    border-radius: 10px;
+}
+
+.hidden {
+    display: none;
 }

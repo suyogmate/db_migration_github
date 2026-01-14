@@ -10,50 +10,50 @@ import org.springframework.stereotype.Service;
 import db_migration.model.*;
 import db_migration.repository.*;
 import db_migration.util.*;
+
 @Service
-public class JdbcMigrationService {
+public class JdbcMigrationService implements MigrationService {
 
-    @Autowired DatabaseConfigRepository dbRepo;
-    @Autowired MigrationJobRepository jobRepo;
-    @Autowired MigrationLogRepository logRepo;
+    @Autowired private DatabaseConfigRepository dbRepo;
+    @Autowired private MigrationJobRepository jobRepo;
+    @Autowired private MigrationLogRepository logRepo;
 
-    public Long startMigration(Long srcId, Long tgtId) throws Exception {
+    @Override
+    public void startMigration(Long sourceId, Long targetId) throws Exception {
 
         MigrationJob job = new MigrationJob();
-        job.setSourceDbId(srcId);
-        job.setTargetDbId(tgtId);
+        job.setSourceDbId(sourceId);
+        job.setTargetDbId(targetId);
         job.setStatus("RUNNING");
         job.setStartedAt(LocalDateTime.now());
         jobRepo.save(job);
 
-        DatabaseConfig srcCfg = dbRepo.findById(srcId).orElseThrow();
-        DatabaseConfig tgtCfg = dbRepo.findById(tgtId).orElseThrow();
-
         try (
-            Connection src = JdbcConnectionFactory.getConnection(srcCfg);
-            Connection tgt = JdbcConnectionFactory.getConnection(tgtCfg)
+            Connection src = JdbcConnectionFactory.getConnection(
+                    dbRepo.findById(sourceId).orElseThrow());
+            Connection tgt = JdbcConnectionFactory.getConnection(
+                    dbRepo.findById(targetId).orElseThrow())
         ) {
 
-            tgt.setAutoCommit(false);
+            DatabaseConfig srcCfg = dbRepo.findById(sourceId).orElseThrow();
+            DatabaseConfig tgtCfg = dbRepo.findById(targetId).orElseThrow();
 
-            List<String> tables = MetadataUtil.getTables(src, srcCfg.getSchema());
+            String srcSchema = normalizeSchema(srcCfg);
+            String tgtSchema = normalizeSchema(tgtCfg);
 
-            for (String table : tables) {
+            for (String table : MetadataUtil.getTables(src, srcSchema)) {
 
-                log(job.getId(), "Creating table: " + table);
+                log(job.getId(), "Processing table: " + table);
 
-                String ddl = SqlBuilder.buildCreateTable(
-                        src, tgt, table, srcCfg, tgtCfg
-                );
+                List<ColumnMeta> cols =
+                        MetadataUtil.getColumns(src, srcSchema, table);
 
-                tgt.createStatement().execute(ddl);
+                createTableIfMissing(tgt, tgtCfg.getDbType(),
+                        tgtSchema, table, cols);
 
-                copyData(src, tgt, table, srcCfg, tgtCfg);
-
-                log(job.getId(), "Completed table: " + table);
+                migrateData(src, tgt, srcSchema, tgtSchema, table, cols);
             }
 
-            tgt.commit();
             job.setStatus("SUCCESS");
 
         } catch (Exception e) {
@@ -64,33 +64,51 @@ public class JdbcMigrationService {
             job.setEndedAt(LocalDateTime.now());
             jobRepo.save(job);
         }
-
-        return job.getId();
     }
 
-    private void copyData(Connection src, Connection tgt,
-                          String table, DatabaseConfig srcCfg,
-                          DatabaseConfig tgtCfg) throws Exception {
+    /* ---------------- helpers ---------------- */
 
-        String sql = "SELECT * FROM " + srcCfg.getSchema() + "." + table;
-        ResultSet rs = src.createStatement().executeQuery(sql);
+    private void migrateData(Connection src, Connection tgt,
+                             String srcSchema, String tgtSchema,
+                             String table, List<ColumnMeta> cols) throws Exception {
 
-        ResultSetMetaData md = rs.getMetaData();
-        int cols = md.getColumnCount();
+        String selectSql = "SELECT * FROM " + srcSchema + "." + table;
+        String insertSql = SqlBuilder.insertSql(tgtSchema, table, cols);
 
-        String insert = "INSERT INTO " + tgtCfg.getSchema() + "." + table +
-                " VALUES (" + "?,".repeat(cols).substring(0, cols * 2 - 1) + ")";
-
-        PreparedStatement ps = tgt.prepareStatement(insert);
-
-        while (rs.next()) {
-            for (int i = 1; i <= cols; i++) {
-                ps.setObject(i, rs.getObject(i));
+        try (
+            Statement st = src.createStatement();
+            ResultSet rs = st.executeQuery(selectSql);
+            PreparedStatement ps = tgt.prepareStatement(insertSql)
+        ) {
+            while (rs.next()) {
+                for (int i = 0; i < cols.size(); i++) {
+                    ps.setObject(i + 1, rs.getObject(i + 1));
+                }
+                ps.addBatch();
             }
-            ps.addBatch();
+            ps.executeBatch();
         }
+    }
 
-        ps.executeBatch();
+    private void createTableIfMissing(Connection conn, String dbType,
+                                      String schema, String table,
+                                      List<ColumnMeta> cols) throws Exception {
+
+        if (MetadataUtil.tableExists(conn, schema, table)) return;
+
+        String ddl = SqlBuilder.createTable(dbType, schema, table, cols);
+        try (Statement st = conn.createStatement()) {
+            st.execute(ddl);
+        }
+    }
+
+    private String normalizeSchema(DatabaseConfig cfg) {
+        if (cfg.getSchema() != null && !cfg.getSchema().isBlank()) {
+            return cfg.getSchema();
+        }
+        return cfg.getDbType().equalsIgnoreCase("oracle")
+                ? cfg.getUsername().toUpperCase()
+                : "public";
     }
 
     private void log(Long jobId, String msg) {

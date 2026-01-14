@@ -1,76 +1,51 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
-    <title>DB Migration Dashboard</title>
-    <link rel="stylesheet" th:href="@{/css/dashboard.css}">
+    <title>DB Migration Tool</title>
+    <link rel="stylesheet" href="/css/dashboard.css"/>
 </head>
 <body>
 
-<div class="app">
+<div class="container">
+    <h1>Database Migration</h1>
 
-    <aside class="sidebar">
-        <h2>DB Migration</h2>
-        <button onclick="openPopup()">+ Add DB</button>
-    </aside>
+    <div class="card">
+        <label>Source Database</label>
+        <select id="source">
+            <option th:each="d : ${dbs}" th:value="${d.id}"
+                    th:text="${d.name + ' (' + d.dbType + ')'}"></option>
+        </select>
 
-    <main class="content">
+        <label>Target Database</label>
+        <select id="target">
+            <option th:each="d : ${dbs}" th:value="${d.id}"
+                    th:text="${d.name + ' (' + d.dbType + ')'}"></option>
+        </select>
 
-        <header>
-            <h1>Migration Jobs</h1>
-        </header>
+        <button onclick="startMigration()">Start Migration</button>
+    </div>
 
-        <section class="jobs">
+    <div class="progress-card">
+        <div class="progress-bar">
+            <div id="progress"></div>
+        </div>
+        <span id="status">Waiting…</span>
+    </div>
 
-            <div class="job-card" th:each="job : ${jobs}">
-                <div class="job-header">
-                    <span>Job #<b th:text="${job.id}"></b></span>
-                    <span class="status" th:text="${job.status}"></span>
-                </div>
-
-                <div class="progress">
-                    <div class="bar"
-                         th:style="'width:' + ${job.progress} + '%'"></div>
-                </div>
-
-                <div class="actions">
-                    <button th:onclick="'viewLogs(' + ${job.id} + ')'">
-                        Logs
-                    </button>
-                </div>
-            </div>
-
-        </section>
-
-        <section class="logs">
-            <h3>Logs</h3>
-            <pre id="logBox">Select a job to view logs</pre>
-        </section>
-
-    </main>
-</div>
-
-<!-- DB POPUP -->
-<div id="popup" class="modal">
-    <div class="modal-content">
-        <h3>Add Database</h3>
-        <form method="post" th:action="@{/db/save}">
-            <input name="name" placeholder="Name" required>
-            <select name="dbType">
-                <option value="oracle">Oracle</option>
-                <option value="postgres">PostgreSQL</option>
-            </select>
-            <input name="host" placeholder="Host">
-            <input name="port" placeholder="Port">
-            <input name="dbName" placeholder="Database">
-            <input name="schema" placeholder="Schema">
-            <input name="username" placeholder="Username">
-            <input name="password" type="password" placeholder="Password">
-            <button type="submit">Save</button>
-            <button type="button" onclick="closePopup()">Cancel</button>
-        </form>
+    <div class="logs-card">
+        <h3>Logs</h3>
+        <pre id="logs"></pre>
     </div>
 </div>
 
-<script th:src="@{/js/dashboard.js}"></script>
+<div id="errorPopup" class="popup hidden">
+    <div class="popup-content">
+        <h3>Error</h3>
+        <p id="errorText"></p>
+        <button onclick="closePopup()">Close</button>
+    </div>
+</div>
+
+<script src="/js/dashboard.js"></script>
 </body>
 </html>
